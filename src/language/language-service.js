@@ -1,3 +1,5 @@
+const LinkedList = require('../linkedList');
+
 const LanguageService = {
   getUsersLanguage(db, user_id) {
     return db
@@ -28,19 +30,84 @@ const LanguageService = {
       )
       .where({ language_id });
   },
-  getNextWord(db, language_id) {
+
+  getLanguageHead(db, language_id) {
     return db
       .from('word')
-      .join('language', 'word_id', '=', 'language.head')
-      .select('original', 'language_id', 'correct_count', 'incorrect_count')
+      .select(
+        'id',
+        'language_id',
+        'correct_count',
+        'incorrect_count',
+        'original'
+      )
       .where({ language_id });
   },
-  getLinkHead(db, language_id) {
+
+  fillList(db, language, words) {
+    let wordList = new LinkedList();
+
+    wordList.id = language.id;
+    wordList.name = language.name; // German
+    wordList.total_score = language.total_score;
+    let word = words.find((w) => w.id === language.head);
+
+    wordList.insertFirst({
+      id: word.id,
+      original: word.original,
+      translation: word.translation,
+      memory_value: word.memory_value,
+      correct_count: word.correct_count,
+      incorrect_count: word.incorrect_count,
+    });
+    while (word.next) {
+      word = words.find((w) => w.id === word.next);
+      wordList.insertLast({
+        id: word.id,
+        original: word.original,
+        translation: word.translation,
+        memory_value: word.memory_value,
+        correct_count: word.correct_count,
+        incorrect_count: word.incorrect_count,
+      });
+    }
+    return wordList;
+  },
+
+  updateWord(db, word) {
+    return db.from('word').where({ id: word.id }).update({
+      memory_value: word.memory_value,
+      incorrect_count: word.incorrect_count,
+      correct_count: word.correct_count,
+    });
+  },
+  incrementTotalScore(db, language) {
     return db
       .from('language')
-      .join('word', 'word.language_id', '=', 'language.id')
-      .select('head')
-      .where({ language_id });
+      .where({ id: language.id })
+      .update({ total_score: language.total_score + 1 });
+  },
+  persistLinkedList(db, linkedLanguage) {
+    return db.transaction((trx) =>
+      Promise.all([
+        db('language').transacting(trx).where('id', linkedLanguage.id).update({
+          total_score: linkedLanguage.total_score,
+          head: linkedLanguage.head.value.id,
+        }),
+
+        ...linkedLanguage.forEach((node) =>
+          db('word')
+            .transacting(trx)
+            .where('id', node.value.id)
+            .update({
+              memory_value: node.value.memory_value,
+              correct_count: node.value.correct_count,
+              incorrect_count: node.value.incorrect_count,
+              next: node.next ? node.next.value.id : null,
+            })
+        ),
+      ])
+    );
   },
 };
 
